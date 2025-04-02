@@ -22,6 +22,18 @@ class MyApp extends StatelessWidget {
   }
 }
 
+// Timer configuration options
+enum TimerConfig {
+  pomodoro(25, 5, '25/5'),
+  short(10, 5, '10/5'),
+  extended(50, 10, '50/10');
+
+  final int workDuration; // in minutes
+  final int shortBreakDuration; // in minutes
+  final String label; // Display label
+  const TimerConfig(this.workDuration, this.shortBreakDuration, this.label);
+}
+
 class PomodoroTimer extends StatefulWidget {
   const PomodoroTimer({super.key});
 
@@ -30,29 +42,26 @@ class PomodoroTimer extends StatefulWidget {
 }
 
 class _PomodoroTimerState extends State<PomodoroTimer> {
-  int _workDuration = 25; // minutes
-  int _shortBreakDuration = 5; // minutes
-  int _longBreakDuration = 15; // minutes
+  TimerConfig _currentConfig = TimerConfig.pomodoro;
+  int _longBreakDuration = 15;
 
-  // Timer controller
   Timer? _timer;
-  int _seconds = 25 * 60; // Use _workDuration * 60
+  int _seconds = 25 * 60;
   bool _isRunning = false;
   bool _isBreak = false;
   int _completedPomodoros = 0;
-  int _totalPomodoros = 4; // 4 pomodoros before long break
+  int _totalPomodoros = 4;
 
-  // Task management
   List<String> _tasks = [];
   final TextEditingController _taskController = TextEditingController();
   String? _currentTask;
 
-  // Random number generator
   final Random _random = Random();
 
   @override
   void initState() {
     super.initState();
+    _seconds = _currentConfig.workDuration * 60;
     _loadTasks();
   }
 
@@ -68,6 +77,11 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
       _timer!.cancel();
     }
 
+    // If no task is selected and tasks exist, pick a random one
+    if (!_isBreak && _currentTask == null && _tasks.isNotEmpty) {
+      _currentTask = _tasks[_random.nextInt(_tasks.length)];
+    }
+
     setState(() {
       _isRunning = true;
     });
@@ -79,24 +93,22 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
         } else {
           _timer!.cancel();
 
-          // Check if we just finished a work session or a break
           if (!_isBreak) {
-            // Work session completed
             _completedPomodoros++;
-
             if (_completedPomodoros < _totalPomodoros) {
-              // Start a short break
-              _seconds = _shortBreakDuration * 60; // Use short break duration
+              _seconds = _currentConfig.shortBreakDuration * 60;
               _isBreak = true;
+              _currentTask = null; // Clear task during break
               _startTimer();
             } else {
-              // Ask for long break or continue
               _showLongBreakDialog();
             }
           } else {
-            // Break completed, start next work session
-            _seconds = _workDuration * 60; // Use work duration
+            _seconds = _currentConfig.workDuration * 60;
             _isBreak = false;
+            if (_tasks.isNotEmpty) {
+              _currentTask = _tasks[_random.nextInt(_tasks.length)];
+            }
             _startTimer();
           }
         }
@@ -118,9 +130,20 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
       _timer!.cancel();
     }
     setState(() {
-      _seconds = _workDuration * 60; // Reset to work duration
+      _seconds = _currentConfig.workDuration * 60;
       _isRunning = false;
       _isBreak = false;
+      _currentTask = null; // Reset task on full reset
+    });
+  }
+
+  void _changeConfig(TimerConfig config) {
+    setState(() {
+      _currentConfig = config;
+      _seconds =
+          _isBreak ? config.shortBreakDuration * 60 : config.workDuration * 60;
+      _isRunning = false;
+      _timer?.cancel();
     });
   }
 
@@ -137,9 +160,7 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.pop(context),
               child: const Text('CANCEL'),
             ),
             TextButton(
@@ -184,6 +205,9 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
                   onTap: () {
                     setState(() {
                       _tasks.removeAt(index);
+                      if (_currentTask == _tasks[index]) {
+                        _currentTask = null; // Clear if current task is removed
+                      }
                     });
                     Navigator.pop(context);
                   },
@@ -193,9 +217,7 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.pop(context),
               child: const Text('CLOSE'),
             ),
           ],
@@ -229,9 +251,7 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.pop(context),
               child: const Text('CLOSE'),
             ),
           ],
@@ -253,9 +273,10 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
             TextButton(
               onPressed: () {
                 setState(() {
-                  _seconds = _longBreakDuration * 60; // Use long break duration
+                  _seconds = _longBreakDuration * 60;
                   _isBreak = true;
                   _completedPomodoros = 0;
+                  _currentTask = null; // Clear task during long break
                 });
                 _saveTasks();
                 Navigator.pop(context);
@@ -266,9 +287,12 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
             TextButton(
               onPressed: () {
                 setState(() {
-                  _seconds = _workDuration * 60; // Back to work duration
+                  _seconds = _currentConfig.workDuration * 60;
                   _isBreak = false;
                   _completedPomodoros = 0;
+                  if (_tasks.isNotEmpty) {
+                    _currentTask = _tasks[_random.nextInt(_tasks.length)];
+                  }
                 });
                 _saveTasks();
                 Navigator.pop(context);
@@ -282,7 +306,7 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
     );
   }
 
-  void _selectRandomTask() {
+  void _switchRandomTask() {
     if (_tasks.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -291,44 +315,13 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
     }
 
     setState(() {
-      _currentTask = _tasks[_random.nextInt(_tasks.length)];
+      // Ensure we pick a different task if possible
+      String? newTask;
+      do {
+        newTask = _tasks[_random.nextInt(_tasks.length)];
+      } while (newTask == _currentTask && _tasks.length > 1);
+      _currentTask = newTask;
     });
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Your Random Task'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Focus on this task for your Pomodoro session:'),
-              const SizedBox(height: 16),
-              Text(
-                _currentTask!,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _selectRandomTask(); // Pick another random task
-              },
-              child: const Text('PICK ANOTHER'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   String _formatTime(int seconds) {
@@ -345,6 +338,49 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
     // Placeholder for saving tasks to persistent storage
   }
 
+  void _navigateToAboutPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AboutPage()),
+    );
+  }
+
+  void _showConfigDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Select Timer Duration'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children:
+                TimerConfig.values
+                    .map(
+                      (config) => RadioListTile<TimerConfig>(
+                        title: Text(config.label),
+                        value: config,
+                        groupValue: _currentConfig,
+                        onChanged: (value) {
+                          if (value != null) {
+                            _changeConfig(value);
+                            Navigator.pop(context);
+                          }
+                        },
+                      ),
+                    )
+                    .toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('CANCEL'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Color backgroundColor =
@@ -355,6 +391,18 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
       appBar: AppBar(
         title: const Text('Pomodoro Timer'),
         backgroundColor: _isBreak ? Colors.red : Colors.green,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.timer),
+            tooltip: 'Change Timer Duration',
+            onPressed: _showConfigDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'About Pomodoro',
+            onPressed: _navigateToAboutPage,
+          ),
+        ],
       ),
       body: Center(
         child: Column(
@@ -365,6 +413,16 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
               _isBreak ? 'Take a Break!' : 'Get Working!',
               style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
             ),
+            if (!_isBreak && _currentTask != null) ...[
+              const SizedBox(height: 20),
+              Text(
+                'Task: $_currentTask',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             Container(
               padding: const EdgeInsets.all(20),
@@ -373,12 +431,7 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
                 borderRadius: BorderRadius.circular(15),
                 boxShadow: [
                   BoxShadow(
-                    color: Color.fromRGBO(
-                      Colors.grey.r.toInt(),
-                      Colors.grey.g.toInt(),
-                      Colors.grey.b.toInt(),
-                      0.5,
-                    ),
+                    color: Colors.grey.withAlpha((0.5 * 255).toInt()),
                     spreadRadius: 2,
                     blurRadius: 7,
                     offset: const Offset(0, 3),
@@ -415,9 +468,9 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
                     ),
                     _buildButton('See My Tasks', Icons.list, _showTasksDialog),
                     _buildButton(
-                      'Random Task', // New Random Task button
+                      'Switch Task',
                       Icons.shuffle,
-                      _selectRandomTask,
+                      _switchRandomTask,
                     ),
                     _isRunning
                         ? _buildButton('Pause Timer', Icons.pause, _pauseTimer)
@@ -488,6 +541,55 @@ class _PomodoroTimerState extends State<PomodoroTimer> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
       ],
+    );
+  }
+}
+
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('About Pomodoro'),
+        backgroundColor: Colors.blue,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'History of the Pomodoro Technique',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'The Pomodoro Technique was developed in the late 1980s by Francesco Cirillo, an Italian university student. Struggling with productivity, Cirillo used a tomato-shaped kitchen timer (hence "Pomodoro," Italian for "tomato") to break his work into focused intervals. He experimented with various time lengths and settled on 25-minute work sessions followed by 5-minute breaks, with a longer break after four cycles. This simple method turned into a widely recognized time management tool.',
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'How It Helps',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'The Pomodoro Technique boosts productivity and focus by:\n'
+                '- **Breaking Work into Manageable Chunks**: 25-minute sessions make large tasks less daunting.\n'
+                '- **Encouraging Regular Breaks**: Short breaks prevent burnout and maintain mental clarity.\n'
+                '- **Building Momentum**: Completing "pomodoros" provides a sense of accomplishment.\n'
+                '- **Reducing Distractions**: Committing to a single task per session enhances concentration.\n'
+                '- **Customizable**: Adjust work and break times (like 10/5 or 50/10) to suit your needs.\n\n'
+                'This app enhances the classic technique with task management and random task selection to keep your workflow engaging!',
+                style: TextStyle(fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
